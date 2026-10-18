@@ -3,6 +3,8 @@ import {
   removeMember,
   getRoomForSocket,
 } from './presenceStore.js';
+import { getOrLoadRoomStrokes } from './whiteboard.js';
+import { getOrInitRoomTimer, formatTimerPayload } from './timer.js';
 
 /**
  * Register room and presence socket handlers
