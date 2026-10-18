@@ -68,4 +68,15 @@ export const roomApi = {
     fetchWithAuth('/api/rooms/mine', {
       method: 'GET',
     }),
+
+  updateRoomSettings: (code, settings) =>
+    fetchWithAuth(`/api/rooms/${code.toUpperCase()}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    }),
+
+  getRoomSessions: (code) =>
+    fetchWithAuth(`/api/rooms/${code.toUpperCase()}/sessions`, {
+      method: 'GET',
+    }),
 };
