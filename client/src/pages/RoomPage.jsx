@@ -4,19 +4,20 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { roomApi } from '../services/api.js';
 import { Toast } from '../components/Toast.jsx';
+import { Whiteboard } from '../components/Whiteboard.jsx';
+import { PomodoroTimer } from '../components/PomodoroTimer.jsx';
 import {
   Users,
   Copy,
   Check,
   ArrowLeft,
   Crown,
-  Sparkles,
-  Clock,
-  Layers,
-  FileText,
+  Share2,
   AlertCircle,
   Loader2,
-  Share2,
+  Layout,
+  Timer as TimerIcon,
+  PenTool,
 } from 'lucide-react';
 
 export const RoomPage = () => {
@@ -35,15 +36,17 @@ export const RoomPage = () => {
   const [toasts, setToasts] = useState([]);
   const [copied, setCopied] = useState(false);
 
+  // Active view on mobile/small screens ('whiteboard' | 'timer-members')
+  const [mobileTab, setMobileTab] = useState('whiteboard');
+
   // Helper to add toast notification
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random().toString(36).substring(2, 6);
     setToasts((prev) => [...prev, { id, message, type }]);
 
-    // Auto-dismiss after 4 seconds
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, 4500);
   }, []);
 
   const removeToast = (id) => {
@@ -87,7 +90,6 @@ export const RoomPage = () => {
     const cleanCode = code.toUpperCase();
 
     // Emit room:join event
-    console.log(`Socket emitting room:join for ${cleanCode}`);
     socket.emit('room:join', { roomCode: cleanCode }, (response) => {
       if (response?.error) {
         console.error('room:join Server returned error:', response.error);
@@ -99,7 +101,6 @@ export const RoomPage = () => {
 
     // Handle presence:update broadcast
     const handlePresenceUpdate = (payload) => {
-      console.log('Socket presence:update received:', payload);
       if (payload.roomCode?.toUpperCase() !== cleanCode) return;
 
       if (Array.isArray(payload.members)) {
@@ -125,7 +126,6 @@ export const RoomPage = () => {
 
     // Cleanup on unmount or code change
     return () => {
-      console.log(`Socket emitting room:leave for ${cleanCode}`);
       socket.emit('room:leave', { roomCode: cleanCode });
       socket.off('presence:update', handlePresenceUpdate);
     };
@@ -173,7 +173,7 @@ export const RoomPage = () => {
   const isHost = room.host?._id === currentUser?._id;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 relative">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 relative">
       {/* Toast Notification Container */}
       <div className="fixed top-20 right-4 sm:right-6 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-auto">
         {toasts.map((toast) => (
@@ -181,15 +181,29 @@ export const RoomPage = () => {
         ))}
       </div>
 
-      {/* Navigation & Top Bar */}
+      {/* Navigation & Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <button
           onClick={() => navigate('/dashboard')}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 text-sm font-medium transition cursor-pointer"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 text-xs font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Exit to Dashboard</span>
         </button>
+
+        {/* Room Title & Host Info */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+              {room.name}
+            </h1>
+            {isHost && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                <Crown className="w-3 h-3 text-amber-400" /> Host
+              </span>
+            )}
+          </div>
+        </div>
 
         {/* Room Code Badge with Copy Action */}
         <div className="flex items-center gap-2 bg-slate-900/90 border border-indigo-500/30 px-3.5 py-1.5 rounded-2xl shadow-lg">
@@ -209,61 +223,65 @@ export const RoomPage = () => {
         </div>
       </div>
 
-      {/* Room Hero Card */}
-      <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-slate-800 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-2.5 mb-2">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                {room.name}
-              </h1>
-              {isHost && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                  <Crown className="w-3 h-3 text-amber-400" /> Host
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-slate-400">
-              Hosted by <span className="text-slate-200 font-medium">{room.host?.name || 'A Peer'}</span> • Created {new Date(room.createdAt).toLocaleDateString()}
-            </p>
-          </div>
-
-          {/* Quick share button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleCopyCode}
-              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition cursor-pointer"
-            >
-              <Share2 className="w-4 h-4" />
-              <span>Share Code</span>
-            </button>
-          </div>
-        </div>
+      {/* Mobile Tab Switcher (Visible on screens < lg) */}
+      <div className="flex lg:hidden bg-slate-900/80 p-1 rounded-2xl border border-slate-800">
+        <button
+          onClick={() => setMobileTab('whiteboard')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+            mobileTab === 'whiteboard'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <PenTool className="w-3.5 h-3.5" />
+          <span>Shared Whiteboard</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('timer-members')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+            mobileTab === 'timer-members'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <TimerIcon className="w-3.5 h-3.5" />
+          <span>Timer & Members ({members.length})</span>
+        </button>
       </div>
 
-      {/* Main Grid: Live Participants List + Workspace Placeholder */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Live Participants (Primary Phase 1 Requirement) */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="glass-panel rounded-3xl p-6 border border-slate-800">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
+      {/* Main Two-Column Layout (Desktop: Side-by-side | Mobile: Tabbed) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Pomodoro Timer & In-Room Participants (lg: 4 cols) */}
+        <div
+          className={`lg:col-span-4 space-y-6 ${
+            mobileTab === 'timer-members' ? 'block' : 'hidden lg:block'
+          }`}
+        >
+          {/* Synchronized Pomodoro Timer */}
+          <PomodoroTimer
+            roomCode={room.code}
+            isHost={isHost}
+            onTimerAlert={(msg, type) => addToast(msg, type)}
+          />
+
+          {/* In This Room Presence Panel */}
+          <div className="glass-panel rounded-3xl p-5 border border-slate-800 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
                   <Users className="w-4 h-4" />
                 </div>
-                <h2 className="font-bold text-white text-lg">In This Room</h2>
+                <h3 className="font-bold text-white text-sm">Participants</h3>
               </div>
-              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 border border-emerald-800 text-emerald-300">
-                {members.length} {members.length === 1 ? 'online' : 'online'}
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/60 border border-emerald-800 text-emerald-300">
+                {members.length} online
               </span>
             </div>
 
             {/* Member List */}
-            <div className="space-y-3">
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
               {members.length === 0 ? (
-                <div className="p-4 rounded-2xl bg-slate-900/50 text-center text-slate-500 text-xs">
+                <div className="p-4 rounded-xl bg-slate-900/50 text-center text-slate-500 text-xs">
                   Connecting to live presence...
                 </div>
               ) : (
@@ -274,47 +292,44 @@ export const RoomPage = () => {
                   return (
                     <div
                       key={member.socketId}
-                      className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
                         isYou
                           ? 'bg-indigo-950/30 border-indigo-500/30'
                           : 'bg-slate-900/50 border-slate-800/80 hover:border-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {/* Avatar */}
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-md">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-md">
                           {member.name ? member.name.charAt(0).toUpperCase() : '?'}
                         </div>
 
-                        {/* Name & Email */}
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold text-white truncate">
+                            <span className="text-xs font-semibold text-white truncate">
                               {member.name}
                             </span>
                             {isYou && (
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-semibold">
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-semibold">
                                 You
                               </span>
                             )}
                           </div>
-                          <span className="text-xs text-slate-400 truncate block">
+                          <span className="text-[10px] text-slate-400 truncate block">
                             {member.email}
                           </span>
                         </div>
                       </div>
 
-                      {/* Badges */}
-                      <div className="shrink-0 flex items-center gap-1">
+                      <div className="shrink-0 flex items-center gap-1.5">
                         {isMemberHost && (
                           <span
                             title="Room Host"
-                            className="p-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                            className="p-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20"
                           >
-                            <Crown className="w-3.5 h-3.5" />
+                            <Crown className="w-3 h-3" />
                           </span>
                         )}
-                        <span className="relative flex h-2 w-2 ml-1" title="Active now">
+                        <span className="relative flex h-2 w-2" title="Active now">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                         </span>
@@ -327,50 +342,13 @@ export const RoomPage = () => {
           </div>
         </div>
 
-        {/* Right Column: Interactive Study Workspace (Structured for Phase 2 & Phase 3) */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="glass-panel rounded-3xl p-8 border border-slate-800 flex flex-col items-center justify-center text-center min-h-[380px]">
-            <div className="w-16 h-16 rounded-3xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
-              <Sparkles className="w-8 h-8" />
-            </div>
-            <h3 className="text-xl font-bold text-white mb-2">
-              Collaborative Workspace Active
-            </h3>
-            <p className="text-sm text-slate-400 max-w-md mb-8">
-              You and your study group are now connected via real-time WebSocket channels.
-              Share your room code with others to study together!
-            </p>
-
-            {/* Upcoming Phase Modules preview */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-xl text-left">
-              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
-                <div className="flex items-center gap-2 text-indigo-400 mb-1.5">
-                  <Layers className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Phase 2</span>
-                </div>
-                <h4 className="text-sm font-semibold text-slate-200">Whiteboard</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">Shared real-time canvas</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
-                <div className="flex items-center gap-2 text-violet-400 mb-1.5">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Phase 2</span>
-                </div>
-                <h4 className="text-sm font-semibold text-slate-200">Timer</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">Synchronized Pomodoro</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
-                <div className="flex items-center gap-2 text-emerald-400 mb-1.5">
-                  <FileText className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Phase 3</span>
-                </div>
-                <h4 className="text-sm font-semibold text-slate-200">Notes</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">Live markdown notes</p>
-              </div>
-            </div>
-          </div>
+        {/* Right Column: Shared Real-Time Whiteboard (lg: 8 cols) */}
+        <div
+          className={`lg:col-span-8 flex flex-col h-[650px] sm:h-[720px] ${
+            mobileTab === 'whiteboard' ? 'block' : 'hidden lg:block'
+          }`}
+        >
+          <Whiteboard roomCode={room.code} />
         </div>
       </div>
     </div>
