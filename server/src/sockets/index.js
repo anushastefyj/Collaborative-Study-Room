@@ -1,10 +1,10 @@
 import { Server } from 'socket.io';
 import { socketAuth } from './socketAuth.js';
 import { registerRoomHandlers } from './roomHandler.js';
+import { registerWhiteboardHandlers } from './whiteboard.js';
+import { registerTimerHandlers } from './timer.js';
 
 // Modular handler placeholders for future phases:
-// import { registerWhiteboardHandlers } from './whiteboardHandler.js'; // Phase 2
-// import { registerTimerHandlers } from './timerHandler.js'; // Phase 2
 // import { registerNotesHandlers } from './notesHandler.js'; // Phase 3
 
 /**
@@ -34,10 +34,12 @@ export const initSocketServer = (httpServer, clientUrl) => {
     // Register Phase 1 Room & Presence Handlers
     registerRoomHandlers(io, socket);
 
-    // --- Future Phase Handlers (extensible architecture) ---
-    // registerWhiteboardHandlers(io, socket); // Phase 2: Collaborative Whiteboard
-    // registerTimerHandlers(io, socket);      // Phase 2: Shared Pomodoro / Study Timer
-    // registerNotesHandlers(io, socket);      // Phase 3: Collaborative Realtime Notes
+    // Register Phase 2 Whiteboard & Pomodoro Timer Handlers
+    registerWhiteboardHandlers(io, socket);
+    registerTimerHandlers(io, socket);
+
+    // --- Future Phase Handlers ---
+    // registerNotesHandlers(io, socket); // Phase 3: Collaborative Realtime Notes
   });
 
   return io;
