@@ -58,6 +58,16 @@ export const registerRoomHandlers = (io, socket) => {
         user: socket.user,
       });
 
+      // Send initial whiteboard state & timer state to joining socket
+      getOrLoadRoomStrokes(cleanCode).then((strokes) => {
+        socket.emit('board:state', { roomCode: cleanCode, strokes });
+      }).catch((err) => console.error('[room:join] Failed to send board state:', err.message));
+
+      getOrInitRoomTimer(cleanCode).then(async (timer) => {
+        const timerPayload = await formatTimerPayload(timer);
+        socket.emit('timer:state', timerPayload);
+      }).catch((err) => console.error('[room:join] Failed to send timer state:', err.message));
+
       // Optional acknowledgment callback
       if (typeof callback === 'function') {
         callback({ success: true, roomCode: cleanCode, members });
