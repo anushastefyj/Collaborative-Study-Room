@@ -86,3 +86,62 @@ export const getMyRooms = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @desc    Update room settings (e.g. anyoneCanControlTimer)
+ * @route   PATCH /api/rooms/:code/settings
+ * @access  Private (Host only)
+ */
+export const updateRoomSettings = async (req, res, next) => {
+  try {
+    const { code } = req.params;
+    const { anyoneCanControlTimer } = req.body;
+
+    const room = await Room.findOne({ code: code.trim().toUpperCase() });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    if (room.host.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the room host can update settings' });
+    }
+
+    if (typeof anyoneCanControlTimer === 'boolean') {
+      room.settings = room.settings || {};
+      room.settings.anyoneCanControlTimer = anyoneCanControlTimer;
+      await room.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      settings: room.settings,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get focus session history for a room
+ * @route   GET /api/rooms/:code/sessions
+ * @access  Private
+ */
+export const getRoomSessions = async (req, res, next) => {
+  try {
+    const { code } = req.params;
+    const cleanCode = code.trim().toUpperCase();
+
+    const sessions = await Session.find({ roomCode: cleanCode }).sort({ date: -1 });
+    const today = new Date().toISOString().slice(0, 10);
+    const todaySession = sessions.find((s) => s.date === today);
+
+    res.status(200).json({
+      success: true,
+      todayCompletedCount: todaySession ? todaySession.completedCount : 0,
+      totalSessions: sessions.reduce((acc, s) => acc + s.completedCount, 0),
+      history: sessions,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
