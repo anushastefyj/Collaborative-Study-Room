@@ -27,6 +27,12 @@ const roomSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    settings: {
+      anyoneCanControlTimer: {
+        type: Boolean,
+        default: false,
+      },
+    },
   },
   {
     timestamps: true,
