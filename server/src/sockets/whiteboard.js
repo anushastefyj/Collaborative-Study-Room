@@ -3,6 +3,7 @@ import { getRoomForSocket } from './presenceStore.js';
 
 // In-memory cache of strokes per room: roomCode -> Array<Stroke>
 const roomStrokes = new Map();
+const roomStrokesPromises = new Map();
 
 // Map of debounce timers for persisting strokes to MongoDB
 const saveDebounceTimers = new Map();
@@ -18,16 +19,32 @@ export const getOrLoadRoomStrokes = async (roomCode) => {
     return roomStrokes.get(code);
   }
 
-  try {
-    const doc = await Whiteboard.findOne({ roomCode: code });
-    const strokes = doc ? doc.strokes.map((s) => (s.toObject ? s.toObject() : s)) : [];
-    roomStrokes.set(code, strokes);
-    return strokes;
-  } catch (error) {
-    console.error(`[Whiteboard] Failed to load strokes for ${code}:`, error.message);
-    roomStrokes.set(code, []);
-    return [];
+  if (roomStrokesPromises.has(code)) {
+    return roomStrokesPromises.get(code);
   }
+
+  const loadPromise = (async () => {
+    try {
+      const doc = await Whiteboard.findOne({ roomCode: code });
+      const strokes = doc ? doc.strokes.map((s) => (s.toObject ? s.toObject() : s)) : [];
+      // If strokes were already set in memory while loading, keep the memory ones
+      if (!roomStrokes.has(code)) {
+        roomStrokes.set(code, strokes);
+      }
+      return roomStrokes.get(code);
+    } catch (error) {
+      console.error(`[Whiteboard] Failed to load strokes for ${code}:`, error.message);
+      if (!roomStrokes.has(code)) {
+        roomStrokes.set(code, []);
+      }
+      return roomStrokes.get(code);
+    } finally {
+      roomStrokesPromises.delete(code);
+    }
+  })();
+
+  roomStrokesPromises.set(code, loadPromise);
+  return loadPromise;
 };
 
 /**
@@ -109,7 +126,7 @@ export const registerWhiteboardHandlers = (io, socket) => {
       // Format stroke object with authenticated user ID
       const stroke = {
         strokeId: strokeData.strokeId,
-        userId: socket.user?._id || strokeData.userId,
+        userId: (socket.user?._id || strokeData.userId)?.toString(),
         color: strokeData.color || '#ffffff',
         size: strokeData.size || 3,
         tool: strokeData.tool === 'eraser' ? 'eraser' : 'pen',
@@ -147,14 +164,14 @@ export const registerWhiteboardHandlers = (io, socket) => {
 
       if (!roomCode) return;
       const cleanCode = roomCode.toUpperCase();
-      const currentUserId = socket.user?._id;
+      const currentUserId = socket.user?._id?.toString();
 
       const strokes = await getOrLoadRoomStrokes(cleanCode);
 
       // Find the last stroke created by this user
       let strokeToRemoveIndex = -1;
       for (let i = strokes.length - 1; i >= 0; i--) {
-        if (strokes[i].userId === currentUserId) {
+        if (String(strokes[i].userId) === currentUserId) {
           strokeToRemoveIndex = i;
           break;
         }
@@ -226,6 +243,29 @@ export const registerWhiteboardHandlers = (io, socket) => {
       }
     } catch (error) {
       console.error('[draw:clear] Error:', error.message);
+    }
+  });
+
+  /**
+   * Client broadcasts real-time drawing cursor position and status
+   */
+  socket.on('draw:cursor', (data) => {
+    try {
+      const roomCode = data?.roomCode || getRoomForSocket(socket.id);
+      if (!roomCode) return;
+      const cleanCode = roomCode.toUpperCase();
+
+      socket.to(cleanCode).emit('draw:cursor', {
+        roomCode: cleanCode,
+        userId: socket.user?._id,
+        userName: socket.user?.name || data?.userName || 'Peer',
+        x: data?.x,
+        y: data?.y,
+        isDrawing: Boolean(data?.isDrawing),
+        color: data?.color || '#818cf8',
+      });
+    } catch (error) {
+      console.error('[draw:cursor] Error:', error.message);
     }
   });
 };

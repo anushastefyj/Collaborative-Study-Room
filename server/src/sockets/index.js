@@ -4,8 +4,7 @@ import { registerRoomHandlers } from './roomHandler.js';
 import { registerWhiteboardHandlers } from './whiteboard.js';
 import { registerTimerHandlers } from './timer.js';
 
-// Modular handler placeholders for future phases:
-// import { registerNotesHandlers } from './notesHandler.js'; // Phase 3
+import { registerNotesHandlers } from './notesHandler.js';
 
 /**
  * Initialize Socket.io with HTTP server and configure events
@@ -14,9 +13,13 @@ import { registerTimerHandlers } from './timer.js';
  * @returns {Server}
  */
 export const initSocketServer = (httpServer, clientUrl) => {
+  const allowedOrigins = clientUrl
+    ? clientUrl.split(',').map((origin) => origin.trim())
+    : ['http://localhost:5173'];
+
   const io = new Server(httpServer, {
     cors: {
-      origin: clientUrl || 'http://localhost:5173',
+      origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
     },
@@ -38,8 +41,8 @@ export const initSocketServer = (httpServer, clientUrl) => {
     registerWhiteboardHandlers(io, socket);
     registerTimerHandlers(io, socket);
 
-    // --- Future Phase Handlers ---
-    // registerNotesHandlers(io, socket); // Phase 3: Collaborative Realtime Notes
+    // Register Phase 3 Collaborative Realtime Notes Handlers
+    registerNotesHandlers(io, socket);
   });
 
   return io;

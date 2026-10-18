@@ -25,6 +25,23 @@
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
+/* Light Mode Overrides when html has class 'light' */
+html.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html.light .glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(203, 213, 225, 0.8);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+}
+
+html.light .glass-card {
+  background: rgba(241, 245, 249, 0.85);
+  border-color: rgba(226, 232, 240, 0.9);
+}
+
 /* Subtle glow animations */
 @keyframes pulseGlow {
   0%, 100% {

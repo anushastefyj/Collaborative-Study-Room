@@ -6,8 +6,9 @@ import {
   Eraser,
   Undo2,
   Trash2,
-  Palette,
-  Maximize2,
+  Download,
+  PenTool,
+  Image as ImageIcon,
   Sparkles,
 } from 'lucide-react';
 
@@ -34,7 +35,7 @@ export const Whiteboard = ({ roomCode }) => {
   const [color, setColor] = useState('#818cf8');
   const [size, setSize] = useState(4);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [remoteCursors, setRemoteCursors] = useState({});
 
   // References to keep stroke history in sync across renders
   const strokesRef = useRef([]);
@@ -186,18 +187,50 @@ export const Whiteboard = ({ roomCode }) => {
       }
     };
 
+    // 6. Listen to peer drawing cursors & indicators
+    const handleRemoteCursor = (payload) => {
+      if (!payload?.userId || payload.userId === user?._id) return;
+      setRemoteCursors((prev) => ({
+        ...prev,
+        [payload.userId]: {
+          ...payload,
+          timestamp: Date.now(),
+        },
+      }));
+    };
+
     socket.on('board:state', handleBoardState);
     socket.on('draw:stroke', handleRemoteStroke);
     socket.on('draw:undo', handleRemoteUndo);
     socket.on('draw:clear', handleRemoteClear);
+    socket.on('draw:cursor', handleRemoteCursor);
+
+    // Auto-clean stale drawing cursors after 3 seconds
+    const cursorInterval = setInterval(() => {
+      const now = Date.now();
+      setRemoteCursors((prev) => {
+        let changed = false;
+        const next = {};
+        for (const [id, cursor] of Object.entries(prev)) {
+          if (now - cursor.timestamp < 3500) {
+            next[id] = cursor;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 2000);
 
     return () => {
       socket.off('board:state', handleBoardState);
       socket.off('draw:stroke', handleRemoteStroke);
       socket.off('draw:undo', handleRemoteUndo);
       socket.off('draw:clear', handleRemoteClear);
+      socket.off('draw:cursor', handleRemoteCursor);
+      clearInterval(cursorInterval);
     };
-  }, [socket, isConnected, roomCode, redrawCanvas, drawStrokeOnCanvas]);
+  }, [socket, isConnected, roomCode, user, redrawCanvas, drawStrokeOnCanvas]);
 
   /**
    * Helper to extract normalized (0 to 1) coordinates from Mouse or Touch event
@@ -248,6 +281,18 @@ export const Whiteboard = ({ roomCode }) => {
       const ctx = canvas.getContext('2d');
       drawStrokeOnCanvas(ctx, newStroke, canvas.width, canvas.height);
     }
+
+    // Broadcast cursor start
+    if (socket && isConnected) {
+      socket.emit('draw:cursor', {
+        roomCode: roomCode.toUpperCase(),
+        x: coords.x,
+        y: coords.y,
+        isDrawing: true,
+        color,
+        userName: user?.name,
+      });
+    }
   };
 
   /**
@@ -297,6 +342,14 @@ export const Whiteboard = ({ roomCode }) => {
           ...stroke,
           roomCode: roomCode.toUpperCase(),
         });
+        socket.emit('draw:cursor', {
+          roomCode: roomCode.toUpperCase(),
+          x: coords.x,
+          y: coords.y,
+          isDrawing: true,
+          color,
+          userName: user?.name,
+        });
       }
     }
   };
@@ -315,6 +368,10 @@ export const Whiteboard = ({ roomCode }) => {
       socket.emit('draw:stroke', {
         ...stroke,
         roomCode: roomCode.toUpperCase(),
+      });
+      socket.emit('draw:cursor', {
+        roomCode: roomCode.toUpperCase(),
+        isDrawing: false,
       });
     }
 
@@ -339,6 +396,56 @@ export const Whiteboard = ({ roomCode }) => {
       socket.emit('draw:clear', { roomCode: roomCode.toUpperCase() });
     }
   };
+
+  /**
+   * Export whiteboard canvas as high-resolution PNG image
+   */
+  const exportAsPng = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Create an offscreen canvas with background
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const ctx = exportCanvas.getContext('2d');
+
+    // Fill dark background
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    // Subtle grid dots in background
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    for (let x = 0; x < exportCanvas.width; x += 24) {
+      for (let y = 0; y < exportCanvas.height; y += 24) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Render strokes
+    for (const stroke of strokesRef.current) {
+      drawStrokeOnCanvas(ctx, stroke, exportCanvas.width, exportCanvas.height);
+    }
+
+    // Watermark/Footer
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+    ctx.fillText(
+      `StudySpace Whiteboard • Room ${roomCode?.toUpperCase()} • ${new Date().toLocaleDateString()}`,
+      16,
+      exportCanvas.height - 16
+    );
+
+    // Download PNG
+    const link = document.createElement('a');
+    link.download = `whiteboard-${roomCode}-${new Date().toISOString().slice(0, 10)}.png`;
+    link.href = exportCanvas.toDataURL('image/png');
+    link.click();
+  };
+
+  const activeDrawers = Object.values(remoteCursors).filter((c) => c.isDrawing);
 
   return (
     <div className="flex flex-col h-full w-full glass-panel rounded-3xl border border-slate-800 overflow-hidden shadow-2xl relative select-none">
@@ -428,8 +535,17 @@ export const Whiteboard = ({ roomCode }) => {
           </div>
         </div>
 
-        {/* Right Tools Group: Undo & Clear */}
+        {/* Right Tools Group: Export PNG, Undo & Clear */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={exportAsPng}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 hover:text-white text-xs font-semibold transition cursor-pointer"
+            title="Download whiteboard as PNG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export PNG</span>
+          </button>
+
           <button
             onClick={handleUndo}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer"
@@ -475,6 +591,46 @@ export const Whiteboard = ({ roomCode }) => {
             backgroundSize: '24px 24px',
           }}
         />
+
+        {/* Live Active Drawing Status Banner */}
+        {activeDrawers.length > 0 && (
+          <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-indigo-500/40 text-indigo-300 text-xs font-medium shadow-xl backdrop-blur-md animate-pulse">
+            <PenTool className="w-3.5 h-3.5 text-indigo-400" />
+            <span>
+              {activeDrawers.map((d) => d.userName || 'Peer').join(', ')}{' '}
+              {activeDrawers.length === 1 ? 'is' : 'are'} currently drawing...
+            </span>
+          </div>
+        )}
+
+        {/* Floating Remote Peer Drawing Cursors */}
+        {Object.entries(remoteCursors).map(([id, cursor]) => {
+          if (!cursor.x || !cursor.y || !cursor.isDrawing) return null;
+          return (
+            <div
+              key={id}
+              className="absolute pointer-events-none transition-all duration-75 ease-out z-20"
+              style={{
+                left: `${cursor.x * 100}%`,
+                top: `${cursor.y * 100}%`,
+                transform: 'translate(-4px, -24px)',
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-3 h-3 rounded-full border-2 border-white shadow-lg animate-ping"
+                  style={{ backgroundColor: cursor.color || '#818cf8' }}
+                />
+                <span
+                  className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-white shadow-lg tracking-wide whitespace-nowrap"
+                  style={{ backgroundColor: cursor.color || '#4f46e5' }}
+                >
+                  {cursor.userName || 'Peer'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

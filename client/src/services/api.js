@@ -80,3 +80,31 @@ export const roomApi = {
       method: 'GET',
     }),
 };
+
+// Notes API services (Phase 3)
+export const notesApi = {
+  getNote: (code) =>
+    fetchWithAuth(`/api/notes/${code.toUpperCase()}`, {
+      method: 'GET',
+    }),
+
+  saveNote: (code, content) =>
+    fetchWithAuth(`/api/notes/${code.toUpperCase()}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+};
+
+// Study Stats API services (Phase 3)
+export const statsApi = {
+  getUserStats: () =>
+    fetchWithAuth('/api/stats', {
+      method: 'GET',
+    }),
+
+  getRoomStats: (code) =>
+    fetchWithAuth(`/api/stats/${code.toUpperCase()}`, {
+      method: 'GET',
+    }),
+};
+

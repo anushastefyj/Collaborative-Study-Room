@@ -5,6 +5,7 @@ import { useSocket } from '../context/SocketContext.jsx';
 import { roomApi } from '../services/api.js';
 import { Toast } from '../components/Toast.jsx';
 import { Whiteboard } from '../components/Whiteboard.jsx';
+import { NotesPad } from '../components/NotesPad.jsx';
 import { PomodoroTimer } from '../components/PomodoroTimer.jsx';
 import {
   Users,
@@ -18,6 +19,8 @@ import {
   Layout,
   Timer as TimerIcon,
   PenTool,
+  FileText,
+  Columns,
 } from 'lucide-react';
 
 export const RoomPage = () => {
@@ -36,8 +39,11 @@ export const RoomPage = () => {
   const [toasts, setToasts] = useState([]);
   const [copied, setCopied] = useState(false);
 
-  // Active view on mobile/small screens ('whiteboard' | 'timer-members')
+  // Active view on mobile/small screens ('whiteboard' | 'notes' | 'timer')
   const [mobileTab, setMobileTab] = useState('whiteboard');
+
+  // Active view on desktop ('whiteboard' | 'notes' | 'split')
+  const [desktopTab, setDesktopTab] = useState('whiteboard');
 
   // Helper to add toast notification
   const addToast = useCallback((message, type = 'info') => {
@@ -223,7 +229,7 @@ export const RoomPage = () => {
         </div>
       </div>
 
-      {/* Mobile Tab Switcher (Visible on screens < lg) */}
+      {/* Mobile Tab Switcher (Visible on screens < lg: Board / Notes / Timer) */}
       <div className="flex lg:hidden bg-slate-900/80 p-1 rounded-2xl border border-slate-800">
         <button
           onClick={() => setMobileTab('whiteboard')}
@@ -234,7 +240,18 @@ export const RoomPage = () => {
           }`}
         >
           <PenTool className="w-3.5 h-3.5" />
-          <span>Shared Whiteboard</span>
+          <span>Board</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('notes')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+            mobileTab === 'notes'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          <span>Notes</span>
         </button>
         <button
           onClick={() => setMobileTab('timer-members')}
@@ -245,11 +262,11 @@ export const RoomPage = () => {
           }`}
         >
           <TimerIcon className="w-3.5 h-3.5" />
-          <span>Timer & Members ({members.length})</span>
+          <span>Timer ({members.length})</span>
         </button>
       </div>
 
-      {/* Main Two-Column Layout (Desktop: Side-by-side | Mobile: Tabbed) */}
+      {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Pomodoro Timer & In-Room Participants (lg: 4 cols) */}
         <div
@@ -342,13 +359,94 @@ export const RoomPage = () => {
           </div>
         </div>
 
-        {/* Right Column: Shared Real-Time Whiteboard (lg: 8 cols) */}
-        <div
-          className={`lg:col-span-8 flex flex-col h-[650px] sm:h-[720px] ${
-            mobileTab === 'whiteboard' ? 'block' : 'hidden lg:block'
-          }`}
-        >
-          <Whiteboard roomCode={room.code} />
+        {/* Right Column: Shared Whiteboard & Collaborative Notes (lg: 8 cols) */}
+        <div className="lg:col-span-8 space-y-4">
+          {/* Desktop Tab Switcher */}
+          <div className="hidden lg:flex items-center justify-between bg-slate-900/60 p-1.5 rounded-2xl border border-slate-800">
+            <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800/80">
+              <button
+                onClick={() => setDesktopTab('whiteboard')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  desktopTab === 'whiteboard'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <PenTool className="w-3.5 h-3.5" />
+                <span>Shared Whiteboard</span>
+              </button>
+
+              <button
+                onClick={() => setDesktopTab('notes')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  desktopTab === 'notes'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Collaborative Notes</span>
+              </button>
+
+              <button
+                onClick={() => setDesktopTab('split')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  desktopTab === 'split'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="View Whiteboard and Notes stacked together"
+              >
+                <Columns className="w-3.5 h-3.5" />
+                <span>Split View</span>
+              </button>
+            </div>
+
+            <div className="text-[11px] text-slate-400 pr-2">
+              Changes sync instantly with real-time CRDT & WebSockets
+            </div>
+          </div>
+
+          {/* Desktop Content View */}
+          <div className="hidden lg:block">
+            {desktopTab === 'whiteboard' && (
+              <div className="h-[650px] sm:h-[720px] flex flex-col">
+                <Whiteboard roomCode={room.code} />
+              </div>
+            )}
+
+            {desktopTab === 'notes' && (
+              <div className="h-[650px] sm:h-[720px] flex flex-col">
+                <NotesPad roomCode={room.code} />
+              </div>
+            )}
+
+            {desktopTab === 'split' && (
+              <div className="space-y-6">
+                <div className="h-[520px] flex flex-col">
+                  <Whiteboard roomCode={room.code} />
+                </div>
+                <div className="h-[480px] flex flex-col">
+                  <NotesPad roomCode={room.code} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Content View */}
+          <div className="block lg:hidden">
+            {mobileTab === 'whiteboard' && (
+              <div className="h-[560px] flex flex-col">
+                <Whiteboard roomCode={room.code} />
+              </div>
+            )}
+
+            {mobileTab === 'notes' && (
+              <div className="h-[560px] flex flex-col">
+                <NotesPad roomCode={room.code} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
