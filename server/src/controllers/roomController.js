@@ -1,4 +1,5 @@
 import { Room } from '../models/Room.js';
+import { Session } from '../models/Session.js';
 import { generateUniqueRoomCode } from '../utils/generateCode.js';
 
 /**
