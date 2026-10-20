@@ -29,3 +29,18 @@ export const authLimiter = rateLimit({
     message: 'Too many authentication attempts, please try again after 15 minutes.',
   },
 });
+
+/**
+ * AI Summarizer Rate Limiter
+ * 15 requests per 60-minute window per IP/user
+ */
+export const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'AI summary rate limit exceeded. You can make up to 15 AI requests per hour. Please try again later.',
+  },
+});

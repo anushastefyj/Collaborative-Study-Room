@@ -108,3 +108,12 @@ export const statsApi = {
     }),
 };
 
+// AI Notes Summary & Flashcards API services
+export const aiApi = {
+  summarizeNotes: (roomCode) =>
+    fetchWithAuth('/api/ai/summarize', {
+      method: 'POST',
+      body: JSON.stringify({ roomCode }),
+    }),
+};
+

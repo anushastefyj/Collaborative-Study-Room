@@ -11,6 +11,8 @@ import {
   ShieldAlert,
   Flame,
   Volume2,
+  Sparkles,
+  Settings2,
 } from 'lucide-react';
 
 /**
@@ -43,19 +45,40 @@ const playTimerChime = () => {
   }
 };
 
-export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
+/**
+ * Play alarm sound file
+ */
+const playAlarmSound = () => {
+  try {
+    const audio = new Audio('/sounds/alarm.wav');
+    audio.play().catch(() => playTimerChime());
+  } catch {
+    playTimerChime();
+  }
+};
+
+export const PomodoroTimer = ({
+  roomCode,
+  isHost,
+  onTimerAlert,
+  onTimerStateChange,
+}) => {
   const { socket, isConnected } = useSocket();
   const { user } = useAuth();
 
   // Raw timer state from server
   const [timerState, setTimerState] = useState({
-    mode: 'focus', // 'focus' | 'break'
+    mode: 'focus', // 'focus' | 'break' | 'long_break'
     duration: 25 * 60,
     startedAt: null,
     pausedRemaining: 25 * 60,
     isRunning: false,
     anyoneCanControl: false,
     completedSessionsToday: 0,
+    currentCycle: 1,
+    cycleTarget: 4,
+    syncAmbientWithTimer: true,
+    activeTask: null,
   });
 
   // Client display seconds (computed directly from server timestamps)
@@ -108,17 +131,42 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
 
       setTimerState(payload);
       setRemainingSeconds(computeRemaining(payload));
+      onTimerStateChange?.(payload);
 
-      // Handle auto-switch notification & chime
+      // Handle auto-switch notification, desktop notification & alarm sound
       if (payload.autoSwitched) {
-        playTimerChime();
-        const notificationMsg =
-          payload.previousMode === 'focus'
-            ? '🎉 Great job! Focus session complete. Enjoy your 5-minute break!'
-            : '⏰ Break is over! Ready for another productive focus session?';
+        playAlarmSound();
+
+        let notificationMsg = '';
+        if (payload.mode === 'long_break') {
+          notificationMsg = '🏆 Incredible work! 4 focus cycles completed. Take a restorative 15-minute Long Break!';
+        } else if (payload.mode === 'break') {
+          notificationMsg = '🎉 Focus session complete! Enjoy a refreshing 5-minute break.';
+        } else {
+          notificationMsg = '⏰ Break time is over! Ready for the next focus session?';
+        }
+
+        // Trigger browser notification if permission granted
+        if (
+          typeof window !== 'undefined' &&
+          'Notification' in window &&
+          Notification.permission === 'granted'
+        ) {
+          try {
+            new Notification('StudySpace Pomodoro', {
+              body: notificationMsg,
+              icon: '/favicon.ico',
+            });
+          } catch (e) {
+            console.warn('Failed showing notification:', e);
+          }
+        }
 
         if (typeof onTimerAlert === 'function') {
-          onTimerAlert(notificationMsg, payload.previousMode === 'focus' ? 'success' : 'info');
+          onTimerAlert(
+            notificationMsg,
+            payload.mode === 'long_break' || payload.mode === 'break' ? 'success' : 'info'
+          );
         }
       }
     };
@@ -128,7 +176,7 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
     return () => {
       socket.off('timer:state', handleTimerState);
     };
-  }, [socket, isConnected, roomCode, computeRemaining, onTimerAlert]);
+  }, [socket, isConnected, roomCode, computeRemaining, onTimerAlert, onTimerStateChange]);
 
   // UI interval loop to recompute display seconds every 500ms while running
   useEffect(() => {
@@ -186,6 +234,15 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
     });
   };
 
+  const handleCycleTargetChange = (e) => {
+    if (!isHost || !socket) return;
+    const newTarget = parseInt(e.target.value, 10);
+    socket.emit('timer:setCycleTarget', {
+      roomCode: roomCode.toUpperCase(),
+      cycleTarget: newTarget,
+    });
+  };
+
   // Progress percentage calculation
   const totalDuration = timerState.duration || 25 * 60;
   const progressPercent = Math.min(
@@ -194,13 +251,22 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
   );
 
   const isFocus = timerState.mode === 'focus';
+  const isLongBreak = timerState.mode === 'long_break';
+  const isBreak = timerState.mode === 'break';
+
+  const currentCycle = timerState.currentCycle ?? 1;
+  const cycleTarget = timerState.cycleTarget ?? 4;
 
   return (
     <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl relative overflow-hidden flex flex-col justify-between">
       {/* Background ambient gradient glow */}
       <div
         className={`absolute -top-10 -right-10 w-44 h-44 rounded-full blur-3xl pointer-events-none transition-colors duration-700 ${
-          isFocus ? 'bg-indigo-500/10' : 'bg-emerald-500/10'
+          isFocus
+            ? 'bg-indigo-500/10'
+            : isLongBreak
+            ? 'bg-purple-500/15'
+            : 'bg-emerald-500/10'
         }`}
       />
 
@@ -212,52 +278,105 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
               className={`p-2 rounded-xl border ${
                 isFocus
                   ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400'
+                  : isLongBreak
+                  ? 'bg-purple-600/20 border-purple-500/30 text-purple-400'
                   : 'bg-emerald-600/20 border-emerald-500/30 text-emerald-400'
               }`}
             >
-              {isFocus ? <Brain className="w-4 h-4" /> : <Coffee className="w-4 h-4" />}
+              {isFocus ? (
+                <Brain className="w-4 h-4" />
+              ) : isLongBreak ? (
+                <Sparkles className="w-4 h-4" />
+              ) : (
+                <Coffee className="w-4 h-4" />
+              )}
             </div>
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-white">
-                {isFocus ? 'Focus Session' : 'Break Time'}
+              <span className="text-xs uppercase tracking-wider font-bold text-white block">
+                {isFocus
+                  ? 'Focus Interval'
+                  : isLongBreak
+                  ? 'Long Break (15m)'
+                  : 'Short Break (5m)'}
               </span>
-              <p className="text-[11px] text-slate-400">
-                {timerState.isRunning ? 'Active & Synchronized' : 'Paused'}
-              </p>
+              <span className="text-[10px] text-slate-400">
+                {timerState.isRunning ? 'Active now' : 'Paused / Ready'}
+              </span>
             </div>
           </div>
 
-          {/* Completed Focus Sessions Counter */}
+          {/* Daily streak indicator */}
           <div
-            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300"
-            title="Completed focus sessions in this room today"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold"
+            title="Total completed focus sessions in this room today"
           >
             <Flame className="w-3.5 h-3.5 text-amber-400" />
-            <span>{timerState.completedSessionsToday || 0}</span>
-            <span className="text-[10px] text-slate-500 hidden sm:inline">done today</span>
+            <span>{timerState.completedSessionsToday || 0} today</span>
           </div>
         </div>
 
-        {/* Digital Time Display */}
-        <div className="text-center py-4">
-          <div
-            className={`font-mono text-5xl sm:text-6xl font-black tracking-tight drop-shadow-md select-none transition-colors ${
-              timerState.isRunning
-                ? isFocus
-                  ? 'text-indigo-400'
-                  : 'text-emerald-400'
-                : 'text-slate-300'
-            }`}
-          >
+        {/* Linked Pomodoro Task Banner */}
+        {timerState.activeTask && (
+          <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 to-indigo-500/10 border border-amber-500/30 flex items-center gap-2 text-xs">
+            <Flame className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider">
+                Current Focus Task:
+              </span>
+              <p className="text-white font-medium truncate">
+                {timerState.activeTask.text}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Cycle Progress Dots */}
+        <div className="mb-4 p-2.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <span className="text-[11px] font-semibold text-slate-300">Cycle:</span>
+            <span className="font-mono text-indigo-400 font-bold">
+              {currentCycle} / {cycleTarget}
+            </span>
+          </div>
+
+          {/* Render progress dots */}
+          <div className="flex items-center gap-2">
+            {Array.from({ length: cycleTarget }).map((_, idx) => {
+              const dotIndex = idx + 1;
+              const isCompletedDot = dotIndex < currentCycle;
+              const isCurrentDot = dotIndex === currentCycle;
+
+              return (
+                <div
+                  key={idx}
+                  title={`Session ${dotIndex} of ${cycleTarget}`}
+                  className={`h-2.5 rounded-full transition-all duration-300 ${
+                    isCurrentDot
+                      ? 'w-6 bg-indigo-500 shadow-md shadow-indigo-500/50'
+                      : isCompletedDot
+                      ? 'w-2.5 bg-emerald-400'
+                      : 'w-2.5 bg-slate-700'
+                  }`}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Circular / Digital Time Display */}
+        <div className="relative my-4 flex flex-col items-center justify-center py-4">
+          <div className="text-5xl sm:text-6xl font-mono font-extrabold tracking-tight text-white drop-shadow-md select-none">
             {formatTime(remainingSeconds)}
           </div>
 
-          {/* Progress Bar */}
-          <div className="w-full bg-slate-900/80 rounded-full h-2 mt-4 overflow-hidden border border-slate-800">
+          {/* Progress Bar under time */}
+          <div className="w-full h-2 rounded-full bg-slate-800 mt-5 overflow-hidden">
             <div
-              className={`h-full transition-all duration-500 ${
+              className={`h-full rounded-full transition-all duration-300 ${
                 isFocus
                   ? 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                  : isLongBreak
+                  ? 'bg-gradient-to-r from-purple-500 to-pink-500'
                   : 'bg-gradient-to-r from-emerald-500 to-teal-400'
               }`}
               style={{ width: `${progressPercent}%` }}
@@ -265,109 +384,129 @@ export const PomodoroTimer = ({ roomCode, isHost, onTimerAlert }) => {
           </div>
         </div>
 
-        {/* Mode Selector Buttons */}
-        <div className="grid grid-cols-2 gap-2 my-4">
+        {/* Quick Mode Preset Buttons */}
+        <div className="grid grid-cols-3 gap-2 mb-5">
           <button
             onClick={() => handleSetMode('focus', 25 * 60)}
             disabled={!canControl}
-            className={`py-2 px-3 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
               isFocus
-                ? 'bg-indigo-600/30 border border-indigo-500/50 text-indigo-300'
-                : 'bg-slate-900 hover:bg-slate-800/80 border border-slate-800 text-slate-400 hover:text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 disabled:opacity-40'
+            }`}
           >
-            <Brain className="w-3.5 h-3.5" />
-            <span>Focus (25m)</span>
+            Focus (25m)
           </button>
 
           <button
             onClick={() => handleSetMode('break', 5 * 60)}
             disabled={!canControl}
-            className={`py-2 px-3 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-              !isFocus
-                ? 'bg-emerald-600/30 border border-emerald-500/50 text-emerald-300'
-                : 'bg-slate-900 hover:bg-slate-800/80 border border-slate-800 text-slate-400 hover:text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              isBreak
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 disabled:opacity-40'
+            }`}
           >
-            <Coffee className="w-3.5 h-3.5" />
-            <span>Break (5m)</span>
+            Break (5m)
+          </button>
+
+          <button
+            onClick={() => handleSetMode('long_break', 15 * 60)}
+            disabled={!canControl}
+            className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              isLongBreak
+                ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 disabled:opacity-40'
+            }`}
+          >
+            Long Break (15m)
           </button>
         </div>
 
-        {/* Controls: Start / Pause & Reset */}
-        <div className="flex items-center gap-2">
+        {/* Primary Controls: Play / Pause / Reset */}
+        <div className="flex items-center justify-center gap-3">
           {timerState.isRunning ? (
             <button
               onClick={handlePause}
               disabled={!canControl}
-              className="flex-1 py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-lg shadow-amber-600/20 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold text-sm transition shadow-lg shadow-amber-600/30 cursor-pointer"
             >
-              <Pause className="w-4 h-4 fill-white" />
-              <span>Pause Timer</span>
+              <Pause className="w-4 h-4 fill-current" />
+              <span>Pause</span>
             </button>
           ) : (
             <button
               onClick={handleStart}
               disabled={!canControl}
-              className={`flex-1 py-3 px-4 rounded-xl text-white font-semibold text-xs shadow-lg flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                isFocus
-                  ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/25'
-                  : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25'
-              }`}
+              className="flex items-center gap-2 px-7 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-sm transition shadow-lg shadow-indigo-600/30 cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-white" />
-              <span>Start Timer</span>
+              <Play className="w-4 h-4 fill-current" />
+              <span>Start</span>
             </button>
           )}
 
           <button
             onClick={handleReset}
             disabled={!canControl}
-            className="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Reset Timer"
+            className="p-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-50 transition cursor-pointer"
+            title="Reset timer to mode default"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Footer: Permission Status & Toggle */}
-      <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
-        {isHost ? (
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={timerState.anyoneCanControl}
-              onChange={handleToggleControl}
-              className="rounded accent-indigo-500 cursor-pointer"
-            />
-            <span className="text-slate-400 text-[11px]">
-              Allow peers to control timer
-            </span>
-          </label>
-        ) : (
-          <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
-            {timerState.anyoneCanControl ? (
-              <>
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Open controls active</span>
-              </>
+      {/* Host Controls & Permission Section */}
+      <div className="mt-5 pt-4 border-t border-slate-800/80 space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-1.5 text-slate-400">
+            {canControl ? (
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
             ) : (
-              <>
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                <span>Host controls only</span>
-              </>
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
             )}
+            <span className="text-[11px]">
+              {isHost
+                ? 'Host controls enabled'
+                : timerState.anyoneCanControl
+                ? 'Open control mode'
+                : 'Host only mode'}
+            </span>
+          </div>
+
+          {/* Host Toggle Switch */}
+          {isHost && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-slate-400">Open controls</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={timerState.anyoneCanControl}
+                  onChange={handleToggleControl}
+                  className="sr-only peer"
+                />
+                <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Host Cycle Target Config */}
+        {isHost && (
+          <div className="flex items-center justify-between text-xs pt-2">
+            <span className="text-[11px] text-slate-400">Long break after</span>
+            <select
+              value={cycleTarget}
+              onChange={handleCycleTargetChange}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-[11px] rounded-lg px-2 py-0.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value={2}>2 focus sessions</option>
+              <option value={3}>3 focus sessions</option>
+              <option value={4}>4 focus sessions</option>
+              <option value={6}>6 focus sessions</option>
+            </select>
           </div>
         )}
-
-        <button
-          onClick={playTimerChime}
-          className="text-slate-500 hover:text-indigo-400 transition"
-          title="Test chime sound"
-        >
-          <Volume2 className="w-3.5 h-3.5" />
-        </button>
       </div>
     </div>
   );

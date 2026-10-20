@@ -7,6 +7,9 @@ import { Toast } from '../components/Toast.jsx';
 import { Whiteboard } from '../components/Whiteboard.jsx';
 import { NotesPad } from '../components/NotesPad.jsx';
 import { PomodoroTimer } from '../components/PomodoroTimer.jsx';
+import { ChatPanel } from '../components/ChatPanel.jsx';
+import { TaskList } from '../components/TaskList.jsx';
+import { AmbientSoundPlayer } from '../components/AmbientSoundPlayer.jsx';
 import {
   Users,
   Copy,
@@ -21,6 +24,8 @@ import {
   PenTool,
   FileText,
   Columns,
+  MessageSquare,
+  CheckSquare,
 } from 'lucide-react';
 
 export const RoomPage = () => {
@@ -39,11 +44,18 @@ export const RoomPage = () => {
   const [toasts, setToasts] = useState([]);
   const [copied, setCopied] = useState(false);
 
-  // Active view on mobile/small screens ('whiteboard' | 'notes' | 'timer')
+  // Active view on mobile/small screens ('whiteboard' | 'notes' | 'timer' | 'tasks')
   const [mobileTab, setMobileTab] = useState('whiteboard');
 
   // Active view on desktop ('whiteboard' | 'notes' | 'split')
   const [desktopTab, setDesktopTab] = useState('whiteboard');
+
+  // Chat drawer state
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
+  // Timer state forwarded from PomodoroTimer to AmbientSoundPlayer
+  const [timerState, setTimerState] = useState(null);
 
   // Helper to add toast notification
   const addToast = useCallback((message, type = 'info') => {
@@ -146,6 +158,15 @@ export const RoomPage = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Host toggle ambient sync
+  const handleToggleAmbientSync = (syncAmbientWithTimer) => {
+    if (!socket || !room?.host?._id || room.host._id !== currentUser?._id || !code) return;
+    socket.emit('timer:toggle-ambient-sync', {
+      roomCode: code.toUpperCase(),
+      syncAmbientWithTimer,
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400">
@@ -211,29 +232,54 @@ export const RoomPage = () => {
           </div>
         </div>
 
-        {/* Room Code Badge with Copy Action */}
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-indigo-500/30 px-3.5 py-1.5 rounded-2xl shadow-lg">
-          <span className="text-xs uppercase text-slate-400 font-semibold tracking-wider">
-            Room Code:
-          </span>
-          <span className="font-mono text-base font-bold text-indigo-400 tracking-widest">
-            {room.code}
-          </span>
+        {/* Right Header: Room Code Badge & Chat Toggle Button */}
+        <div className="flex items-center gap-3">
+          {/* Room Code Badge with Copy Action */}
+          <div className="flex items-center gap-2 bg-slate-900/90 border border-indigo-500/30 px-3.5 py-1.5 rounded-2xl shadow-lg">
+            <span className="text-xs uppercase text-slate-400 font-semibold tracking-wider">
+              Room Code:
+            </span>
+            <span className="font-mono text-base font-bold text-indigo-400 tracking-widest">
+              {room.code}
+            </span>
+            <button
+              onClick={handleCopyCode}
+              title="Copy room code"
+              className="ml-1 p-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white transition cursor-pointer"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {/* Chat Toggle Button */}
           <button
-            onClick={handleCopyCode}
-            title="Copy room code"
-            className="ml-1 p-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white transition cursor-pointer"
+            onClick={() => {
+              setIsChatOpen((prev) => !prev);
+              setUnreadChatCount(0);
+            }}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl border transition cursor-pointer relative shadow-lg ${
+              isChatOpen
+                ? 'bg-indigo-600 border-indigo-500 text-white shadow-indigo-600/30'
+                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+            }`}
+            title="Toggle Room Chat"
           >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            <MessageSquare className="w-4 h-4 text-indigo-400" />
+            <span className="text-xs font-semibold hidden sm:inline">Chat</span>
+            {unreadChatCount > 0 && !isChatOpen && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-bounce">
+                {unreadChatCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Mobile Tab Switcher (Visible on screens < lg: Board / Notes / Timer) */}
+      {/* Mobile Tab Switcher (Visible on screens < lg) */}
       <div className="flex lg:hidden bg-slate-900/80 p-1 rounded-2xl border border-slate-800">
         <button
           onClick={() => setMobileTab('whiteboard')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition ${
             mobileTab === 'whiteboard'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
               : 'text-slate-400 hover:text-white'
@@ -242,9 +288,10 @@ export const RoomPage = () => {
           <PenTool className="w-3.5 h-3.5" />
           <span>Board</span>
         </button>
+
         <button
           onClick={() => setMobileTab('notes')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition ${
             mobileTab === 'notes'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
               : 'text-slate-400 hover:text-white'
@@ -253,36 +300,66 @@ export const RoomPage = () => {
           <FileText className="w-3.5 h-3.5" />
           <span>Notes</span>
         </button>
+
         <button
           onClick={() => setMobileTab('timer-members')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition ${
             mobileTab === 'timer-members'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           <TimerIcon className="w-3.5 h-3.5" />
-          <span>Timer ({members.length})</span>
+          <span>Timer</span>
+        </button>
+
+        <button
+          onClick={() => setMobileTab('tasks')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition ${
+            mobileTab === 'tasks'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <CheckSquare className="w-3.5 h-3.5" />
+          <span>Tasks</span>
         </button>
       </div>
 
       {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Pomodoro Timer & In-Room Participants (lg: 4 cols) */}
+        {/* Left Column: Pomodoro Timer, Ambient Audio, Tasks & In-Room Participants (lg: 4 cols) */}
         <div
           className={`lg:col-span-4 space-y-6 ${
-            mobileTab === 'timer-members' ? 'block' : 'hidden lg:block'
+            mobileTab === 'timer-members' || mobileTab === 'tasks' ? 'block' : 'hidden lg:block'
           }`}
         >
           {/* Synchronized Pomodoro Timer */}
-          <PomodoroTimer
-            roomCode={room.code}
-            isHost={isHost}
-            onTimerAlert={(msg, type) => addToast(msg, type)}
-          />
+          <div className={mobileTab === 'tasks' ? 'hidden lg:block' : 'block'}>
+            <PomodoroTimer
+              roomCode={room.code}
+              isHost={isHost}
+              onTimerAlert={(msg, type) => addToast(msg, type)}
+              onTimerStateChange={setTimerState}
+            />
+          </div>
+
+          {/* Ambient Sounds Player */}
+          <div className={mobileTab === 'tasks' ? 'hidden lg:block' : 'block'}>
+            <AmbientSoundPlayer
+              timerState={timerState}
+              isHost={isHost}
+              onToggleAmbientSync={handleToggleAmbientSync}
+            />
+          </div>
+
+          {/* Shared Task List */}
+          <div className={mobileTab === 'timer-members' ? 'hidden lg:block' : 'block'}>
+            <TaskList roomCode={room.code} members={members} />
+          </div>
 
           {/* In This Room Presence Panel */}
-          <div className="glass-panel rounded-3xl p-5 border border-slate-800 shadow-xl">
+          <div className={`glass-panel rounded-3xl p-5 border border-slate-800 shadow-xl ${mobileTab === 'tasks' ? 'hidden lg:block' : 'block'}`}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
@@ -296,7 +373,7 @@ export const RoomPage = () => {
             </div>
 
             {/* Member List */}
-            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
               {members.length === 0 ? (
                 <div className="p-4 rounded-xl bg-slate-900/50 text-center text-slate-500 text-xs">
                   Connecting to live presence...
@@ -449,6 +526,27 @@ export const RoomPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Collapsible Room Chat Drawer (Sliding from right) */}
+      {isChatOpen && (
+        <>
+          {/* Backdrop on mobile */}
+          <div
+            onClick={() => setIsChatOpen(false)}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 sm:hidden"
+          />
+
+          {/* Drawer container */}
+          <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 shadow-2xl animate-in slide-in-from-right duration-300">
+            <ChatPanel
+              roomCode={room.code}
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              onUnreadChange={setUnreadChatCount}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Cloud,
 } from 'lucide-react';
+import { AiSummaryModal } from './AiSummaryModal.jsx';
 
 export const NotesPad = ({ roomCode }) => {
   const { socket, isConnected } = useSocket();
@@ -29,6 +30,7 @@ export const NotesPad = ({ roomCode }) => {
   const [typingUsers, setTypingUsers] = useState({});
   const [copied, setCopied] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
 
   const textareaRef = useRef(null);
   const ydocRef = useRef(null);
@@ -346,6 +348,16 @@ export const NotesPad = ({ roomCode }) => {
             <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
+          {/* AI Summary & Flashcards Button */}
+          <button
+            onClick={() => setShowAiModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 border border-purple-500/40 text-purple-300 hover:text-white text-xs font-semibold transition cursor-pointer shadow-sm"
+            title="Generate AI Summary & Flashcards"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">AI Summary</span>
+          </button>
+
           {/* Export Dropdown Menu */}
           <div className="relative">
             <button
@@ -428,6 +440,13 @@ export const NotesPad = ({ roomCode }) => {
           </div>
         </div>
       </div>
+
+      {/* AI Notes Summary & Flashcards Modal */}
+      <AiSummaryModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        roomCode={roomCode}
+      />
     </div>
   );
 };
