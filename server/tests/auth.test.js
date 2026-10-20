@@ -36,7 +36,7 @@ describe('Auth REST Routes Integration Tests', () => {
       .send({ email: 'bad@test.com' });
 
     expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBeDefined();
   });
 
   test('POST /api/auth/register - Rejects registration with short password', async () => {
@@ -45,7 +45,7 @@ describe('Auth REST Routes Integration Tests', () => {
       .send({ name: 'Short Pass', email: 'short@test.com', password: '123' });
 
     expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBeDefined();
   });
 
   test('POST /api/auth/register - Successfully registers a new user', async () => {
@@ -66,7 +66,7 @@ describe('Auth REST Routes Integration Tests', () => {
       .send(testUser);
 
     expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
+    expect(res.body.message).toContain('already exists');
   });
 
   test('POST /api/auth/login - Rejects incorrect password', async () => {
@@ -75,7 +75,7 @@ describe('Auth REST Routes Integration Tests', () => {
       .send({ email: testUser.email, password: 'wrongpassword' });
 
     expect(res.status).toBe(401);
-    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBeDefined();
   });
 
   test('POST /api/auth/login - Successfully logs in with correct credentials', async () => {
@@ -91,6 +91,7 @@ describe('Auth REST Routes Integration Tests', () => {
   test('GET /api/auth/me - Rejects unauthorized requests without token', async () => {
     const res = await request(app).get('/api/auth/me');
     expect(res.status).toBe(401);
+    expect(res.body.message).toBeDefined();
   });
 
   test('GET /api/auth/me - Successfully returns profile for authenticated user', async () => {
