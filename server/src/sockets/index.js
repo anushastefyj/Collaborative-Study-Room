@@ -5,6 +5,8 @@ import { registerWhiteboardHandlers } from './whiteboard.js';
 import { registerTimerHandlers } from './timer.js';
 
 import { registerNotesHandlers } from './notesHandler.js';
+import { registerChatHandlers } from './chat.js';
+import { registerTasksHandlers } from './tasks.js';
 
 /**
  * Initialize Socket.io with HTTP server and configure events
@@ -43,6 +45,12 @@ export const initSocketServer = (httpServer, clientUrl) => {
 
     // Register Phase 3 Collaborative Realtime Notes Handlers
     registerNotesHandlers(io, socket);
+
+    // Register Room Chat Handlers
+    registerChatHandlers(io, socket);
+
+    // Register Shared Tasks Handlers
+    registerTasksHandlers(io, socket);
   });
 
   return io;
