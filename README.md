@@ -1,14 +1,16 @@
 # 🎓 StudySpace — Collaborative Study Room (MERN + Socket.io)
 
-StudySpace is a full-stack, real-time collaborative virtual study room platform designed for focused group productivity. Built using the **MERN stack** (MongoDB, Express, React, Node.js) and **Socket.io** WebSockets, it features conflict-free collaborative notes (powered by **Yjs CRDT**), a shared real-time whiteboard, synchronized Pomodoro study timers, comprehensive study analytics, and robust security protections.
+[![CI](https://github.com/anushastefyj/Collaborative-Study-Room/actions/workflows/ci.yml/badge.svg)](https://github.com/anushastefyj/Collaborative-Study-Room/actions/workflows/ci.yml)
+
+StudySpace is a full-stack, real-time collaborative virtual study room platform designed for focused group productivity. Built using the **MERN stack** (MongoDB, Express, React, Node.js) and **Socket.io** WebSockets, it features conflict-free collaborative notes (powered by **Yjs CRDT**), a shared real-time whiteboard, synchronized Pomodoro study timers, comprehensive study analytics, persistent room chat, shared group tasks, ambient study audio, and AI-powered notes synthesis with active-recall flashcards.
 
 ---
 
 ## 🏗️ Architecture Overview
 
 StudySpace leverages a hybrid **REST API + WebSockets** architecture:
-- **REST API (`/api/*`)**: Handles stateless user registration, authentication (JWT), room provisioning, study stats aggregation, and fallback note retrieval.
-- **WebSocket Gateway (Socket.io)**: Manages bi-directional, sub-50ms real-time communication for presence tracking, whiteboard stroke streaming, Yjs CRDT binary updates, live drawing cursor positions, and host-synchronized Pomodoro clocks.
+- **REST API (`/api/*`)**: Handles stateless user registration, authentication (JWT), room provisioning, study stats aggregation, fallback note retrieval, and AI note summaries.
+- **WebSocket Gateway (Socket.io)**: Manages bi-directional, sub-50ms real-time communication for presence tracking, whiteboard stroke streaming, Yjs CRDT binary updates, live drawing cursor positions, host-synchronized Pomodoro clocks, room chat, and shared group tasks.
 - **CRDT Layer (Yjs)**: Enables conflict-free concurrent editing where multiple users can type simultaneously into the shared notes pad without character collision or race condition overwrites.
 - **Persistence Layer (MongoDB)**: Debounced in-memory flushing ensures high-frequency whiteboard strokes and text changes are persisted reliably to MongoDB with minimal database overhead.
 
@@ -18,21 +20,27 @@ StudySpace leverages a hybrid **REST API + WebSockets** architecture:
        |  +--------------------+  +------------------+  +---------+  |
        |  | Collaborative Board|  |  Yjs Notes Pad   |  |Pomodoro |  |
        |  |  (Canvas + Cursors)|  | (CRDT Text Sync) |  |  Timer  |  |
+       |  +---------+----------+--+--------+---------+--+----+----+--+
+       |            |                      |                 |       |
+       |  +---------+----------+  +--------+---------+  +----+----+  |
+       |  |  Shared Task List  |  |  Room Chat Panel |  | Ambient |  |
+       |  | (Assign + Progress)|  | (Unread + Typing)|  | Sounds  |  |
        +--+---------+----------+--+--------+---------+--+----+----+--+
                     |                      |                 |
-       [draw:stroke / cursor]     [notes:update]      [timer:action]
+        [task:add / update]      [chat:message / type]   [timer:sync]
                     |                      |                 |
                     v                      v                 v
        +-------------------------------------------------------------+
        |             Socket.io Real-Time Gateway (Node.js)           |
        |  - JWT Handshake Auth      - In-Memory Y.Doc CRDT Cache     |
-       |  - Presence Room Store     - Timer Clock & Interval Sync   |
+       |  - Presence Room Store     - Timer Clock & Interval Sync    |
+       |  - Zod Payload Validation  - User Rate Limiting Token Store |
        +------------------------------+------------------------------+
                                       | Debounced Flush
                                       v
        +-------------------------------------------------------------+
        |                      MongoDB Database                       |
-       |   Users   •   Rooms   •   Notes   •   Sessions   •  Boards  |
+       |  Users • Rooms • Notes • Sessions • Whiteboards • Messages • Tasks |
        +-------------------------------------------------------------+
 ```
 
@@ -40,52 +48,48 @@ StudySpace leverages a hybrid **REST API + WebSockets** architecture:
 
 ## ⚡ Core Features
 
-### 1. Collaborative Real-Time Notes Pad (Phase 3)
-- **Conflict-Free Synchronization**: Built on **Yjs CRDT**; changes from multiple concurrent typists merge deterministically without data loss.
-- **Auto-Save Persistence**: Debounced auto-save to MongoDB `Note` model (`roomId`, `roomCode`, `content`, `lastEditedBy`, `updatedAt`) every 2 seconds.
-- **Live Typing Indicators**: Broadcasts active typers ("Alice is typing...", "Alice and Bob are typing...") with automatic inactivity expiry.
-- **Export Capabilities**:
-  - **Download as PDF**: Generates a clean, styled document with room code, export date, and word-wrapped text via `jspdf`.
-  - **Download as Plain Text**: Exports `.txt` file with one click.
-  - **Copy to Clipboard**: Quick copy with animated feedback.
-- **Word & Character Counters**: Live counting of document length.
+### 1. Room Chat (Extension Phase)
+- **Real-Time Sliding Drawer**: Collapsible chat panel integrated directly into the study room.
+- **Unread Message Counter**: Dynamic unread counter badge displayed when the drawer is closed.
+- **Typing Indicators**: Live "Alice is typing..." indicator with inactivity auto-expiry.
+- **History Retrieval**: Automatically fetches the last 50 room messages sorted chronologically on join.
+- **Security & Validation**: Zod-validated payloads, HTML text sanitization, 500-character ceiling, and per-user sliding window rate limiting.
 
-### 2. Live Study Analytics & Streak Tracking (Phase 3)
-- **Focus Metric Cards**:
-  - **Total Focus Hours**: Calculated from completed 25-minute Pomodoro intervals.
-  - **Sessions Completed**: All-time completed study session count.
-  - **Current Daily Streak**: Consecutive days studied with active streak flame indicator (🔥).
-  - **Study Spaces Count**: Total rooms created/studied in.
-- **Weekly Rhythm Bar Chart (Recharts)**: Interactive bar chart plotting daily session counts and focus minutes over the past 7 days.
-- **Room Breakdown Table**: Detailed summary showing completed focus cycles per room with direct navigation links.
+### 2. Shared Task List (Extension Phase)
+- **Real-Time Collaborative Tasks**: Add, edit, check off, delete, and assign tasks to members in real time.
+- **Team Progress Bar**: Real-time progress tracker displaying completed task percentage and counts.
+- **Pomodoro Linking**: One-click "Link to Pomodoro" feature that projects "Working on: [Task]" next to the timer for all members.
+- **Persistent Storage**: Backed by MongoDB `Task` model indexed by `roomCode`.
 
-### 3. Shared Collaborative Whiteboard (Phases 2 & 3)
-- **Multi-User Canvas**: HTML5 Canvas with normalized (0 to 1) coordinate mapping ensuring identical rendering across different screen dimensions.
-- **Live Drawing Cursors**: Floating peer pointers displaying peer name tags and colors as they draw, accompanied by a status banner ("Alice is currently drawing...").
-- **Tools**: Pen, Eraser, 8 Preset Colors, Custom Color Picker, Brush Size slider (2px–24px).
-- **Undo & Clear**: Room-wide Undo of the user's last stroke and global board clearing with confirmation.
-- **Export as PNG**: Instant client-side render to high-resolution PNG image with dark slate backdrop and room watermark.
+### 3. Full Pomodoro Cycle + Ambient Sounds (Extension Phase)
+- **Extended Pomodoro Cycles**: Configurable focus cycles (default 4 sessions) leading automatically into an extended 15-minute Long Break.
+- **Cycle Progress Dots**: Visual indicators tracking progress through the current interval cycle (e.g., `2/4`).
+- **Looped Ambient Soundscapes**: Looped royalty-free audio tracks for **Rain**, **Lo-Fi**, and **Cafe Noise** (`/sounds/*.wav`).
+- **Personal Audio Control**: Per-user volume slider and mute toggle saved in `localStorage`.
+- **Timer Audio Synchronization**: Host can toggle "Sync ambient sound with timer" to play audio during focus intervals and pause during breaks.
+- **Desktop Notifications & Alarm**: Native browser notifications (`Notification` API) and alarm audio triggered on phase completion.
 
-### 4. Synchronized Pomodoro Timer (Phase 2)
-- **Room-Wide Synchronization**: Authoritative server timer clock broadcasting ticks every second.
-- **Focus & Break Cycles**: 25-minute focus intervals automatically rolling into 5-minute short breaks.
-- **Host vs. Open Control**: Host controls the timer by default, or can toggle "Anyone can control timer" to enable peer collaboration.
-- **Daily Session Counting**: Completed focus sessions are automatically recorded in MongoDB for today's date.
+### 4. AI Notes Summary + Study Flashcards (Extension Phase)
+- **Anthropic Claude Integration**: Backend endpoint (`POST /api/ai/summarize`) invoking Claude 3.5 Haiku via `@anthropic-ai/sdk`.
+- **Executive Summaries & Key Points**: Clear multi-paragraph summary with high-yield bullet points.
+- **Interactive Flashcards Viewer**: 3D flip card viewer with Question/Answer states, next/prev navigation, and card shuffling.
+- **Export Capabilities**: Instant export of generated flashcards as **JSON** (`.json`) or **CSV** (`.csv`), plus one-click summary copying.
+- **Protections**: Pre-call note length checks, Zod schema validation, API key privacy, and hourly rate limits (15 calls/hr).
 
-### 5. Authentication, Rooms & Presence (Phase 1)
-- **JWT Authentication**: Secure signup and login with hashed passwords (`bcryptjs`).
-- **Room Management**: Easy room creation generating unique 6-character alphanumeric room codes (`e.g. 3SY9Q4`).
-- **Live Presence**: Real-time participants panel tracking online users, host indicators, and join/leave alerts.
+### 5. Collaborative Real-Time Notes Pad (Phase 3)
+- **Conflict-Free Synchronization**: Built on **Yjs CRDT**; changes from concurrent typists merge deterministically without data loss.
+- **Auto-Save Persistence**: Debounced auto-save to MongoDB `Note` model every 2 seconds.
+- **Export Capabilities**: One-click download as styled PDF via `jspdf`, plain text (`.txt`), or clipboard copy.
 
-### 6. UI Polish & Security (Phase 3)
-- **Responsive Layout**: Clean desktop layout with tab/split toggle (`Shared Whiteboard`, `Collaborative Notes`, `Split View`) and 3-tab mobile switcher (`Board`, `Notes`, `Timer`).
-- **Dark/Light Theme Toggle**: Seamless dark mode and light mode toggle with `localStorage` persistence.
-- **Reconnection Banner**: Prominent connection-drop warning when the live WebSocket gateway disconnects, auto-dismissing on reconnect.
-- **Security Protections**:
-  - **Helmet**: Secures HTTP response headers.
-  - **Rate Limiting**: 150 req/15min API limiter and 30 req/15min auth brute-force limiter.
-  - **Input Validation**: `express-validator` schema rules on registration, login, room creation, and room codes.
-  - **CORS Configuration**: Multi-origin CORS support for production.
+### 6. Shared Collaborative Whiteboard (Phases 2 & 3)
+- **Multi-User Canvas**: HTML5 Canvas with normalized (0 to 1) coordinate mapping.
+- **Live Drawing Cursors**: Floating peer pointers with peer name tags, pen colors, and drawing status banners.
+- **Tools**: Pen, Eraser, 8 Preset Colors, Custom Color Picker, Brush Size slider, Undo, and Clear.
+- **Export as PNG**: High-resolution client-side canvas render with watermark.
+
+### 7. Study Analytics & Streaks (Phase 3)
+- **Interactive Recharts Bar Chart**: Weekly rhythm bar chart tracking focus minutes and sessions over the past 7 days.
+- **Streak Tracker**: Consecutive days studied with active streak flame indicator (🔥).
 
 ---
 
@@ -93,227 +97,180 @@ StudySpace leverages a hybrid **REST API + WebSockets** architecture:
 
 | Event Name | Direction | Payload | Description |
 | :--- | :--- | :--- | :--- |
-| `room:join` | Client ➔ Server | `{ roomCode }` | Client enters study room; triggers presence update & board/timer sync |
-| `room:leave` | Client ➔ Server | `{ roomCode }` | Client leaves study room; cleans up socket from room |
-| `presence:update` | Server ➔ Room | `{ roomCode, members, action, user }` | Broadcasts active participant list when someone joins or leaves |
-| `board:init` | Client ➔ Server | `{ roomCode }` | Requests initial whiteboard strokes array |
-| `board:state` | Server ➔ Socket | `{ roomCode, strokes }` | Sends full whiteboard stroke history to joining socket |
-| `draw:stroke` | Bidirectional | `{ roomCode, strokeId, points, color, size, tool }` | Emits new stroke points; broadcast to peers |
-| `draw:undo` | Bidirectional | `{ roomCode, strokeId, userId }` | Reverts user's most recent stroke |
-| `draw:clear` | Bidirectional | `{ roomCode, clearedBy }` | Clears all strokes on the whiteboard |
-| `draw:cursor` | Bidirectional | `{ roomCode, x, y, isDrawing, color, userName }` | Real-time peer drawing cursor position and status |
-| `notes:init` | Client ➔ Server | `{ roomCode }` | Requests initial Yjs document state and metadata |
-| `notes:update` | Bidirectional | `{ roomCode, update: Array<number>, userName }` | Yjs CRDT binary update applied to document |
-| `notes:typing` | Bidirectional | `{ roomCode, isTyping: boolean }` | Broadcasts typing indicator to peers |
-| `timer:action` | Client ➔ Server | `{ roomCode, action: 'start'\|'pause'\|'reset'\|'switch-mode' }` | Host/peer triggers timer state mutation |
-| `timer:state` | Server ➔ Room | `{ roomCode, mode, isRunning, remainingSeconds, ... }` | Authoritative timer state broadcast every second |
-| `timer:settings`| Bidirectional | `{ roomCode, anyoneCanControlTimer: boolean }` | Toggles timer permission mode |
+| `room:join` | Client ➔ Server | `{ roomCode }` | Join room; receives presence, board, timer, and notes |
+| `room:leave` | Client ➔ Server | `{ roomCode }` | Cleanly leave room; broadcasts presence departure |
+| `presence:update` | Server ➔ Room | `{ roomCode, members, action, user }` | Participant join/leave updates |
+| `board:init` | Client ➔ Server | `{ roomCode }` | Request initial whiteboard strokes |
+| `board:state` | Server ➔ Socket | `{ roomCode, strokes }` | Initial whiteboard stroke history |
+| `draw:stroke` | Bidirectional | `{ roomCode, strokeId, points, color, size, tool }` | Real-time stroke transmission |
+| `draw:undo` | Bidirectional | `{ roomCode, strokeId, userId }` | Undo user's latest stroke |
+| `draw:clear` | Bidirectional | `{ roomCode, clearedBy }` | Clear room whiteboard |
+| `draw:cursor` | Bidirectional | `{ roomCode, x, y, isDrawing, color, userName }` | Real-time drawing cursor coordinates |
+| `notes:init` | Client ➔ Server | `{ roomCode }` | Request Yjs CRDT document binary state |
+| `notes:update` | Bidirectional | `{ roomCode, update: Array<number> }` | Broadcast Yjs binary update vector |
+| `notes:typing` | Bidirectional | `{ roomCode, isTyping: boolean }` | Note pad typing indicator |
+| `chat:history` | Client ➔ Server | `{ roomCode }` | Request last 50 room chat messages |
+| `chat:message` | Bidirectional | `{ roomCode, text }` | Send and broadcast validated room message |
+| `chat:typing` | Bidirectional | `{ roomCode, isTyping: boolean }` | Chat input typing broadcast |
+| `task:init` | Client ➔ Server | `{ roomCode }` | Request full shared task list |
+| `task:add` | Bidirectional | `{ roomCode, text, assignedTo, assignedToName }` | Create task and broadcast to peers |
+| `task:update` | Bidirectional | `{ roomCode, taskId, text, completed, ... }` | Update task status or Pomodoro focus link |
+| `task:delete` | Bidirectional | `{ roomCode, taskId }` | Remove task from list |
+| `timer:start` | Client ➔ Server | `{ roomCode }` | Start synchronized Pomodoro clock |
+| `timer:pause` | Client ➔ Server | `{ roomCode }` | Pause timer clock |
+| `timer:reset` | Client ➔ Server | `{ roomCode }` | Reset timer clock to mode default |
+| `timer:setMode` | Client ➔ Server | `{ roomCode, mode, duration }` | Switch between focus, break, long_break |
+| `timer:state` | Server ➔ Room | `{ mode, currentCycle, cycleTarget, activeTask, ... }` | Authoritative server clock state broadcast |
+| `timer:setCycleTarget` | Client ➔ Server | `{ roomCode, cycleTarget: number }` | Host configures focus sessions before long break |
+| `timer:toggle-control` | Client ➔ Server | `{ roomCode, anyoneCanControl: boolean }` | Host toggles open controls |
+| `timer:toggle-ambient-sync` | Client ➔ Server | `{ roomCode, syncAmbientWithTimer: boolean }` | Host toggles ambient sound synchronization |
 
 ---
 
-## 📂 Project Structure
+## 📂 Updated Folder Structure
 
 ```
 Collaborative Study Room/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                       # GitHub Actions CI workflow (Tests + Build)
 ├── client/
+│   ├── public/
+│   │   └── sounds/
+│   │       ├── alarm.wav                # Phase completion chime
+│   │       ├── cafe.wav                 # Looped cafe ambience
+│   │       ├── lofi.wav                 # Looped lo-fi chords
+│   │       └── rain.wav                 # Looped rain sounds
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Navbar.jsx               # Navigation bar with Theme toggle & Stats link
-│   │   │   ├── NotesPad.jsx             # Yjs CRDT collaborative text editor & exports
-│   │   │   ├── PomodoroTimer.jsx        # Synchronized Pomodoro timer component
-│   │   │   ├── ProtectedRoute.jsx       # Auth route guard
-│   │   │   ├── ReconnectionBanner.jsx   # Live gateway connection loss alert
-│   │   │   ├── Toast.jsx                # Toast notification popup
-│   │   │   └── Whiteboard.jsx           # HTML5 canvas whiteboard with peer cursors & PNG export
+│   │   │   ├── AiSummaryModal.jsx       # AI summary modal & 3D flip flashcard viewer
+│   │   │   ├── AmbientSoundPlayer.jsx   # Ambient audio player with volume & host sync
+│   │   │   ├── ChatPanel.jsx            # Real-time room chat with unread badge & typing
+│   │   │   ├── Navbar.jsx               # Navigation header & theme switcher
+│   │   │   ├── NotesPad.jsx             # Yjs collaborative notes & AI trigger
+│   │   │   ├── PomodoroTimer.jsx        # Synchronized timer with long breaks & task link
+│   │   │   ├── ProtectedRoute.jsx       # JWT route guard
+│   │   │   ├── ReconnectionBanner.jsx   # WebSocket connection drop alert
+│   │   │   ├── TaskList.jsx             # Shared room task list with progress bar
+│   │   │   ├── Toast.jsx                # Notification popups
+│   │   │   └── Whiteboard.jsx           # Canvas whiteboard with cursors & PNG export
 │   │   ├── context/
-│   │   │   ├── AuthContext.jsx          # JWT authentication context
-│   │   │   ├── SocketContext.jsx        # Socket.io connection manager
-│   │   │   └── ThemeContext.jsx         # Dark / Light theme toggle context
+│   │   │   ├── AuthContext.jsx          # Auth user & token state
+│   │   │   ├── SocketContext.jsx        # Gateway connection management
+│   │   │   └── ThemeContext.jsx         # Dark / Light theme state
 │   │   ├── pages/
-│   │   │   ├── DashboardPage.jsx        # Rooms list, create room, join room
-│   │   │   ├── LoginPage.jsx            # User sign-in
-│   │   │   ├── RegisterPage.jsx         # User registration
-│   │   │   ├── RoomPage.jsx             # Responsive study room (Board/Notes/Timer)
-│   │   │   └── StatsPage.jsx            # Study stats, Recharts weekly rhythm & streaks
+│   │   │   ├── DashboardPage.jsx        # Room listings & creation
+│   │   │   ├── LoginPage.jsx            # Sign-in
+│   │   │   ├── RegisterPage.jsx         # Registration
+│   │   │   ├── RoomPage.jsx             # Responsive study space layout
+│   │   │   └── StatsPage.jsx            # Recharts study analytics
 │   │   ├── services/
-│   │   │   └── api.js                   # Universal fetch wrapper (Auth, Rooms, Notes, Stats)
-│   │   ├── App.jsx                      # Main application routing
-│   │   ├── index.css                    # Tailwind CSS v4 & theme variables
-│   │   └── main.jsx                     # Vite entry point
-│   ├── .env.example                     # Client environment variables template
+│   │   │   └── api.js                   # REST API client (Auth, Rooms, Notes, Stats, AI)
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── Dockerfile                       # Multi-stage client Dockerfile (Vite + Nginx)
+│   ├── nginx.conf                       # Nginx SPA fallback & reverse proxy configuration
 │   └── package.json
 │
 ├── server/
 │   ├── src/
+│   │   ├── app.js                       # Express app definition & route bindings
+│   │   ├── server.js                    # Server startup & Socket.io initialization
 │   │   ├── config/
 │   │   │   └── db.js                    # Mongoose MongoDB connection
 │   │   ├── controllers/
-│   │   │   ├── authController.js        # Register, login, getMe
-│   │   │   ├── notesController.js       # REST notes fetch & fallback save
-│   │   │   ├── roomController.js        # Create, get, list rooms & session history
-│   │   │   └── statsController.js       # Focus hours, streak, weekly history aggregation
+│   │   │   ├── aiController.js          # Anthropic SDK summarization & flashcards
+│   │   │   ├── authController.js        # Auth controllers
+│   │   │   ├── notesController.js       # Notes controllers
+│   │   │   ├── roomController.js        # Room controllers
+│   │   │   └── statsController.js       # Analytics aggregation
 │   │   ├── middleware/
-│   │   │   ├── auth.js                  # Bearer JWT verification middleware
-│   │   │   ├── errorHandler.js          # 404 and global error handler
-│   │   │   ├── rateLimiter.js           # API and Auth rate limiters
+│   │   │   ├── auth.js                  # Bearer token verification
+│   │   │   ├── errorHandler.js          # Global error handling
+│   │   │   ├── rateLimiter.js           # API, Auth, and AI rate limiters
 │   │   │   └── validate.js              # express-validator schemas
 │   │   ├── models/
-│   │   │   ├── Note.js                  # Collaborative notes document schema
-│   │   │   ├── Room.js                  # Study room schema
-│   │   │   ├── Session.js               # Pomodoro focus session schema
-│   │   │   ├── User.js                  # User schema with bcrypt passwordHash
-│   │   │   └── Whiteboard.js            # Whiteboard stroke schema
+│   │   │   ├── Message.js               # Chat message schema
+│   │   │   ├── Note.js                  # Collaborative notes schema
+│   │   │   ├── Room.js                  # Room schema
+│   │   │   ├── Session.js               # Pomodoro study sessions schema
+│   │   │   ├── Task.js                  # Shared task list schema
+│   │   │   ├── User.js                  # User schema
+│   │   │   └── Whiteboard.js            # Whiteboard strokes schema
 │   │   ├── routes/
+│   │   │   ├── aiRoutes.js              # /api/ai/summarize
 │   │   │   ├── authRoutes.js            # /api/auth
 │   │   │   ├── notesRoutes.js           # /api/notes
 │   │   │   ├── roomRoutes.js            # /api/rooms
 │   │   │   └── statsRoutes.js           # /api/stats
-│   │   ├── sockets/
-│   │   │   ├── index.js                 # Socket.io server bootstrap & auth handshake
-│   │   │   ├── notesHandler.js          # Yjs CRDT sync, typing indicators & note persistence
-│   │   │   ├── presenceStore.js         # In-memory room membership tracker
-│   │   │   ├── roomHandler.js           # Room join/leave & presence events
-│   │   │   ├── socketAuth.js            # Socket handshake JWT middleware
-│   │   │   ├── timer.js                 # Authoritative Pomodoro clock & session recorder
-│   │   │   └── whiteboard.js            # Canvas stroke broadcast, undo & peer cursors
-│   │   ├── utils/
-│   │   │   └── generateCode.js          # Unique 6-character room code generator
-│   │   └── server.js                    # Express app, Helmet, CORS, Socket.io HTTP server
-│   ├── test-phase1.js                   # Phase 1 integration test suite
-│   ├── test-phase2.js                   # Phase 2 integration test suite
-│   ├── test-phase3.js                   # Phase 3 integration test suite
-│   ├── .env.example                     # Server environment variables template
-│   └── package.json
+│   │   └── sockets/
+│   │       ├── chat.js                  # Room chat handlers with Zod validation
+│   │       ├── index.js                 # Socket gateway initialization
+│   │       ├── notesHandler.js          # Yjs CRDT notes sync
+│   │       ├── presenceStore.js         # Room presence store
+│   │       ├── roomHandler.js           # Room join/leave & presence
+│   │       ├── socketAuth.js            # Socket handshake JWT verification
+│   │       ├── tasks.js                 # Shared task handlers with Zod validation
+│   │       ├── timer.js                 # Full cycle timer with long break & task link
+│   │       └── whiteboard.js            # Whiteboard stroke sync & cursors
+│   ├── tests/
+│   │   ├── auth.test.js                 # Supertest + Jest auth route tests
+│   │   └── chatTaskValidation.test.js   # Jest tests for Zod schemas & sanitization
+│   ├── Dockerfile                       # Production Node.js server image
+│   ├── package.json
+│   ├── test-phase1.js                   # Phase 1 integration test script
+│   ├── test-phase2.js                   # Phase 2 integration test script
+│   ├── test-phase3.js                   # Phase 3 integration test script
+│   └── test-phase4.js                   # Phase 4 integration test script
+│
+├── .dockerignore
+├── .gitignore
+├── docker-compose.yml                   # Docker Compose (Client + Server + MongoDB)
 └── README.md
 ```
 
 ---
 
-## 🚀 Local Development Setup
+## 🐳 Running with Docker Compose
 
-### Prerequisites
-- **Node.js** (v18 or higher recommended)
-- **MongoDB** running locally (`mongodb://localhost:27017`) or a free MongoDB Atlas connection string.
+To spin up the entire application including **MongoDB**, the **Backend API & WebSockets server**, and the **Nginx-served Client frontend**:
 
-### 1. Clone & Setup Server
 ```bash
-cd server
-cp .env.example .env
-npm install
-npm run dev
+# 1. Provide your environment variables (optional: add ANTHROPIC_API_KEY)
+export ANTHROPIC_API_KEY="your-anthropic-key-here"
+
+# 2. Build and launch all containers
+docker compose up --build
+
+# 3. Access StudySpace
+# - Frontend: http://localhost (or http://localhost:5173)
+# - Backend Health: http://localhost:5000/api/health
 ```
 
-### 2. Setup Client
+To stop and remove containers:
 ```bash
-cd ../client
-cp .env.example .env
-npm install
-npm run dev
+docker compose down
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## 🧪 Running Automated Test Suites
+## 🧪 Automated Testing
 
-All 3 phases include comprehensive end-to-end integration test scripts that simulate multi-user socket interactions:
-
+### 1. Jest & Supertest Test Suites (Server Unit & Route Tests)
 ```bash
-# In the server directory:
+cd server
+npm test
+```
+Tests:
+- `tests/auth.test.js`: User registration, validation error handling, password requirements, login, and JWT bearer authentication.
+- `tests/chatTaskValidation.test.js`: Zod schema validation for chat messages, typing signals, task creation, and XSS sanitization.
+
+### 2. End-to-End Multi-Socket Integration Tests
+```bash
+cd server
 node test-phase1.js   # Auth, room creation, socket JWT handshake & presence
 node test-phase2.js   # Whiteboard strokes, undo, timer controls & session recording
 node test-phase3.js   # Yjs CRDT notes sync, typing indicators, stats & security headers
+node test-phase4.js   # Room chat, shared tasks, Pomodoro long break, and AI endpoints
 ```
-
----
-
-## 🌐 Production Deployment Guide
-
-### Step 1: MongoDB Atlas Database
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) and sign in.
-2. Create a free shared cluster (e.g., M0 tier).
-3. Under **Database Access**, create a user with read/write privileges (e.g., `studyspace_user`).
-4. Under **Network Access**, add IP `0.0.0.0/0` (allow connections from anywhere) so Render/Railway can connect.
-5. In **Clusters > Connect > Drivers**, copy your connection string:
-   ```
-   mongodb+srv://<username>:<password>@cluster0.abcde.mongodb.net/collaborative-study-room?retryWrites=true&w=majority
-   ```
-
-### Step 2: Backend on Render or Railway (WebSockets Supported)
-Both **Render** and **Railway** provide native WebSocket support required for Socket.io.
-
-#### Deploying on Render:
-1. Push your repository to GitHub.
-2. Sign in to [Render](https://render.com) and click **New > Web Service**.
-3. Select your repository.
-4. Set the configuration:
-   - **Root Directory**: `server`
-   - **Environment**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `node src/server.js`
-5. Under **Environment Variables**, add:
-   - `PORT`: `5000` (or leave default assigned by Render)
-   - `MONGODB_URI`: `<Your MongoDB Atlas Connection String>`
-   - `JWT_SECRET`: `<A strong random string, e.g. openssl rand -base64 32>`
-   - `CLIENT_URL`: `https://your-frontend.vercel.app`
-6. Click **Create Web Service**. Note your backend URL (e.g. `https://studyspace-backend.onrender.com`).
-
-### Step 3: Frontend on Vercel
-1. Sign in to [Vercel](https://vercel.com) and click **Add New > Project**.
-2. Select your repository.
-3. Configure project settings:
-   - **Framework Preset**: `Vite`
-   - **Root Directory**: Click edit and choose `client`
-4. Under **Environment Variables**, add:
-   - `VITE_API_URL`: `https://studyspace-backend.onrender.com`
-   - `VITE_SOCKET_URL`: `https://studyspace-backend.onrender.com`
-5. Click **Deploy**.
-6. Once deployed, copy your production Vercel URL and update the `CLIENT_URL` in your Render backend settings.
-
----
-
-## 🛡️ Production `.env` Configurations
-
-### Backend (`server/.env`)
-```ini
-PORT=5000
-MONGODB_URI=mongodb+srv://admin:StrongPassword123@cluster0.abcde.mongodb.net/collaborative-study-room?retryWrites=true&w=majority
-JWT_SECRET=supersecret_study_room_jwt_key_2026_prod
-CLIENT_URL=https://studyspace.vercel.app,http://localhost:5173
-```
-
-### Frontend (`client/.env`)
-```ini
-VITE_API_URL=https://studyspace-backend.onrender.com
-VITE_SOCKET_URL=https://studyspace-backend.onrender.com
-```
-
----
-
-## ✅ Final End-to-End Test Checklist
-
-Before shipping to production, verify each flow:
-- [ ] **Authentication**: User registration rejects short passwords / bad emails with clear 400 messages; successful signup stores token and redirects to dashboard.
-- [ ] **Room Creation**: Host creates room, receives unique 6-character room code; copy room code button displays checkmark.
-- [ ] **Presence**: Multiple tabs / users entering the room appear in the Participants panel; toast alerts trigger on join/leave.
-- [ ] **Collaborative Notes**:
-  - [ ] Two users typing concurrently at different places merge seamlessly via Yjs without overwrites.
-  - [ ] "Alice is typing..." indicator displays when Alice types and vanishes after pause.
-  - [ ] Auto-save indicator shows "Saving changes..." and transitions to "All changes saved".
-  - [ ] Notes export to `.pdf` with formatted headers and to `.txt`.
-- [ ] **Whiteboard**:
-  - [ ] Strokes drawn in one window appear instantly in the other.
-  - [ ] Moving/drawing on canvas displays peer cursor with name tag.
-  - [ ] "Export PNG" downloads canvas snapshot with watermark.
-  - [ ] Undo reverts only the active user's last stroke.
-- [ ] **Pomodoro Timer**:
-  - [ ] Host controls timer; non-host peer receives alert if controls are locked.
-  - [ ] Host can toggle "Anyone can control timer" to allow peer controls.
-  - [ ] Completed sessions increment and persist to daily session record.
-- [ ] **Stats Page**:
-  - [ ] Total focus hours, completed session count, and streak count display accurately.
-  - [ ] Recharts weekly bar chart plots 7-day session distribution with hover tooltip.
-- [ ] **UI Polish**:
-  - [ ] Responsive 3-tab switcher activates properly on mobile viewports.
-  - [ ] Dark/Light mode toggle switches themes and persists across refresh.
-  - [ ] Reconnection banner appears if backend is paused and vanishes on reconnect.
